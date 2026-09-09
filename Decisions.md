@@ -14,6 +14,19 @@
 - Google Gemini
 Reason - Accessible free tier has strong reasoning performance.
 
+### 3. ChromaDB Retriever.
+- ChromaDB Vector database
+-Rejected remote API to avoid rate limits, network latency etc. 
+- Stored locally and reproducible execution that runs without any external embedding quotas.
+
 
 ## Issues Faced
-- Had to change python versions from 3.14.7 to 3.11.9 due to mismatches with ChromaDB and other extensions. 
+
+8/9
+- Had to change python versions from 3.14.7 to 3.11.9 due to mismatches with ChromaDB and other extensions.
+
+- Loose Overlapping allowed inaccurate answers to return from search_fact.mb
+
+9/9 
+- Tried to install FastEmbed . Unsuccessful due to windows filesystem priviledge issues.
+
