@@ -7,11 +7,11 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore"
+        extra="ignore",
     )
 
     gemini_api_key: str = ""
-    openai_api_key: str = ""
+    gemini_model: str = "gemini-3.5-flash-lite"
     chroma_persist_dir: str = ".chroma"
     server_port: int = 8000
     agent_timeout_seconds: int = 60
