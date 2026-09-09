@@ -10,7 +10,9 @@
 - LangChain 0.2.6
 
 
-
+### 2. LLM Selection
+- Google Gemini
+Reason - Accessible free tier has strong reasoning performance.
 
 
 ## Issues Faced
