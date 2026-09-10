@@ -8,6 +8,7 @@ from langchain_core.tools import BaseTool
 from app.config import settings
 from app.schemas.agent import AgentRequest, ThoughtStep, AgentResponse
 from app.agent.prompts import REACT_SYSTEM_PROMPT
+from app.services.session import session_store
 from app.tools.calculator import calculate_expression
 from app.tools.search import search_world_facts
 from app.tools.retriever import retrieve_tideline_docs
@@ -97,12 +98,18 @@ class ReActAgent:
     def run(self, request: AgentRequest, timeout_seconds: float = 60.0) -> AgentResponse:
         start_time = time.perf_counter()
         query = request.query
+        session_id = request.session_id
         limit = request.max_iterations or settings.max_iterations_default
         steps: List[ThoughtStep] = []
         scratchpad = ""
 
+        # Retrieve prior session turns if session_id is provided
+        history_prefix = ""
+        if session_id:
+            state = session_store.get_or_create(session_id)
+            history_prefix = state.format_history_for_prompt()
+
         for iteration in range(1, limit + 1):
-            # Check elapsed execution time against timeout budget
             elapsed = time.perf_counter() - start_time
             if elapsed >= timeout_seconds:
                 latency = round(elapsed * 1000, 2)
@@ -110,8 +117,11 @@ class ReActAgent:
                     f"Execution timed out after {timeout_seconds}s. "
                     f"Last observation: {steps[-1].observation if steps else 'None'}"
                 )
+                if session_id:
+                    session_store.record_turn(session_id, query, fallback, steps)
                 return AgentResponse(
                     query=query,
+                    session_id=session_id,
                     answer=fallback,
                     steps=steps if request.return_trace else [],
                     iterations=iteration - 1,
@@ -119,7 +129,7 @@ class ReActAgent:
                     stop_reason="timeout",
                 )
 
-            full_prompt = f"Question: {query}\n{scratchpad}"
+            full_prompt = f"{history_prefix}Question: {query}\n{scratchpad}"
             response = self.model.generate_content(full_prompt)
             output_text = extract_response_text(response)
 
@@ -150,22 +160,15 @@ class ReActAgent:
                 )
                 continue
 
-            if final_answer:
+            answer_to_return = final_answer or output_text
+            if answer_to_return:
                 latency = round((time.perf_counter() - start_time) * 1000, 2)
+                if session_id:
+                    session_store.record_turn(session_id, query, answer_to_return, steps)
                 return AgentResponse(
                     query=query,
-                    answer=final_answer,
-                    steps=steps if request.return_trace else [],
-                    iterations=iteration,
-                    latency_ms=latency,
-                    stop_reason="final_answer",
-                )
-
-            if output_text:
-                latency = round((time.perf_counter() - start_time) * 1000, 2)
-                return AgentResponse(
-                    query=query,
-                    answer=output_text,
+                    session_id=session_id,
+                    answer=answer_to_return,
                     steps=steps if request.return_trace else [],
                     iterations=iteration,
                     latency_ms=latency,
@@ -177,8 +180,11 @@ class ReActAgent:
             f"Agent reached the maximum iteration limit of {limit}. "
             f"Last observation: {steps[-1].observation if steps else 'None'}"
         )
+        if session_id:
+            session_store.record_turn(session_id, query, fallback_answer, steps)
         return AgentResponse(
             query=query,
+            session_id=session_id,
             answer=fallback_answer,
             steps=steps if request.return_trace else [],
             iterations=limit,

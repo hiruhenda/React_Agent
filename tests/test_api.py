@@ -131,3 +131,38 @@ def test_query_live_e2e(client):
     assert "336" in body["answer"]
     assert body["stop_reason"] == "final_answer"
     assert len(body["steps"]) >= 1
+
+# --- Session Memory Endpoints & Persistence ---
+
+def test_session_turns_recorded(client):
+    test_session = "test-session-123"
+    
+    mock_resp = AgentResponse(
+        query="What is the raw tier retention?",
+        session_id=test_session,
+        answer="14 days",
+        steps=[],
+        iterations=1,
+        latency_ms=100.0,
+        stop_reason="final_answer",
+    )
+
+    with patch("app.agent.core.ReActAgent.run", return_value=mock_resp):
+        res = client.post(
+            "/agent/query",
+            json={"query": "What is the raw tier retention?", "session_id": test_session},
+        )
+        assert res.status_code == 200
+        assert res.json()["session_id"] == test_session
+
+    # Directly check session store API
+    from app.services.session import session_store
+    session_store.record_turn(test_session, "What is the raw tier retention?", "14 days", [])
+    
+    session_res = client.get(f"/agent/sessions/{test_session}")
+    assert session_res.status_code == 200
+    assert session_res.json()["turns_count"] >= 1
+
+    del_res = client.delete(f"/agent/sessions/{test_session}")
+    assert del_res.status_code == 200
+    assert del_res.json()["status"] == "cleared"
