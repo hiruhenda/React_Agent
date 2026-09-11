@@ -1,262 +1,112 @@
-\# Tideline Research Assistant (ReAct Agent API)
+﻿# ReAct Agent REST API — Halcyon Labs / Tideline Research Assistant
 
+A Reasoning + Acting (ReAct) agent exposed via a FastAPI REST interface, implementing tool orchestration over a ChromaDB vector store, structured factual search, and safe AST-based arithmetic execution.
 
+---
 
-A production-grade, multi-stage ReAct (Reasoning + Acting) AI agent service built with \*\*FastAPI\*\*, \*\*LangChain\*\*, and Google's \*\*Gemini API\*\* (`gemini-2.5-flash`). The service coordinates specialized tools (semantic document retrieval, keyword fact search, and safe arithmetic) over a persistent vector store of Tideline documentation.
+## 1. Setup from Scratch
 
+### Prerequisites
+- Python 3.11+
+- Virtual environment (`venv`)
 
+### Installation
+```bash
+# Clone or navigate to the repository
+git clone <repo-url>
+cd react-agent
 
-\---
-
-
-
-\## 1. Architecture Highlights
-
-
-
-\- \*\*Text-Parsing ReAct Loop\*\*: Implements the canonical ReAct pattern using structured plain-text prompt parsing (`Thought`, `Action`, `Action Input`, `Observation`, `Final Answer`) with temperature fixed to `0.0`.
-
-\- \*\*Decoupled Service Layer (Constraint #3)\*\*: All core domain logic resides in framework-agnostic Python functions under `app/services/`. Both standalone FastAPI HTTP endpoints (`app/routers/tools.py`) and agent tool wrappers (`app/tools/`) consume the identical service tier without circular dependencies.
-
-\- \*\*Persistent Vector Store (ChromaDB)\*\*: Ingests Tideline markdown documentation (`corpus/\*.md`) into persistent storage using `sentence-transformers/all-MiniLM-L6-v2`. Seeding runs idempotently on FastAPI startup lifecycle events (`lifespan`).
-
-\- \*\*AST-Guarded Arithmetic\*\*: The calculation service evaluates math strictly via Abstract Syntax Tree (AST) node parsing—eliminating remote code execution (RCE) hazards from `eval()` and capping exponentiation attacks.
-
-\- \*\*Fail-Safe \& Bounded Execution\*\*:
-
-&#x20; - Request-level timeouts (default 60s) returning partial traces with `stop\_reason="timeout"`.
-
-&#x20; - Configurable iteration limits (default 10, max 20) returning `stop\_reason="max\_iterations"`.
-
-&#x20; - Strict Pydantic v2 schemas validating inputs and sanitizing whitespace.
-
-
-
-\---
-
-
-
-\## 2. Directory Structure
-
-
-
-text
-
-React\_Agent/
-
-├── app/
-
-│   ├── agent/
-
-│   │   ├── core.py             # ReAct reasoning loop \& Gemini text parsing
-
-│   │   └── prompts.py          # Strict system prompt templates
-
-│   ├── routers/
-
-│   │   ├── agent.py            # /agent/query \& /agent/info routes
-
-│   │   └── tools.py            # Standalone /tools/\* routes (Req 1.7-1.9)
-
-│   ├── schemas/
-
-│   │   ├── agent.py            # AgentRequest, ThoughtStep, AgentResponse
-
-│   │   └── tools.py            # Search, Retrieve, Calculate schemas
-
-│   ├── services/
-
-│   │   ├── calculator.py       # Safe AST math evaluator
-
-│   │   ├── retriever.py        # ChromaDB client \& sliding-window chunker
-
-│   │   ├── search.py           # Markdown table fact search engine
-
-│   │   └── session.py          # Conversational memory state store
-
-│   ├── tools/
-
-│   │   ├── calculator.py       # LangChain wrapper for calculator service
-
-│   │   ├── retriever.py        # LangChain wrapper for retriever service
-
-│   │   └── search.py           # LangChain wrapper for search service
-
-│   ├── config.py               # Pydantic BaseSettings management
-
-│   └── main.py                 # FastAPI application factory \& lifespan
-
-├── corpus/                     # Tideline technical documentation (.md)
-
-├── data/                       # Mock search world facts (search-facts.md)
-
-├── tests/
-
-│   └── test\_api.py             # Contract \& unit test suite (pytest)
-
-├── requirements.txt
-
-├── ARCHITECTURE.md
-
-└── README.md
-
-
-
-
-
-\## 3. Setup \& Installation
-
-
-
-\### Prerequisites
-
-\- Python 3.10+ (tested on Python 3.11)
-
-\- Windows PowerShell or Bash terminal
-
-\- Active Gemini API Key
-
-
-
-\### Installation Steps
-
-
-
-1\. \*\*Clone the repository and navigate to root:
-
-bash
-
-cd React\_Agent
-
-
-
-
-
-2\. \*\*Create and activate a virtual environment:\*\*
-
-powershell
-
+# Create and activate virtual environment
 python -m venv venv
+# Windows (PowerShell):
+.\venv\Scripts\Activate.ps1
+# Linux/macOS:
+source venv/bin/activate
 
-.\\venv\\Scripts\\Activate.ps1
-
-
-
-
-
-3\. \*\*Install dependencies:\*\*
-
-bash
-
+# Install pinned dependencies
 pip install -r requirements.txt
 
 
+2. Environment Variables
+Create a .env file in the project root based on .env.example:
+GEMINI_API_KEY="your_api_key_here"
+CHROMA_PERSIST_DIR="chroma_db"
+AGENT_TIMEOUT_SECONDS=60
+DEFAULT_MAX_ITERATIONS=10
 
 
-
-4\. \*\*Configure Environment Variables:\*\*
-
-Create a `.env` file in the root directory:
-
-env
-
-GEMINI\_API\_KEY="your\_actual\_gemini\_api\_key\_here"
-
-GEMINI\_MODEL="gemini-2.5-flash"
-
-AGENT\_TIMEOUT\_SECONDS=60
-
-MAX\_ITERATIONS\_DEFAULT=10
+3. Ingesting the Corpus
+All corpus documents must be indexed via the POST /ingest API endpoint:
+python scripts/ingest_corpus.py
 
 
-
-\---
-
-
-
-\## 4. Running the Service
+4. Running the Evaluation Harness
+Execute the unattended 21-question evaluation runner. 
+python scripts/run_eval.py
+results are saved to eval/results.md and summarized in the terminal
 
 
-
-Start the FastAPI application using `uvicorn`:
-
-powershell
-
+5. API Usage & Example Requests
+Start the development server:
 uvicorn app.main:app --reload --port 8000
+Interactive documentation is accessible at 
+http://127.0.0.1:8000/docs
 
 
+Example 1: Pure Calculation
+Request:
+curl -X POST "[http://127.0.0.1:8000/agent/query](http://127.0.0.1:8000/agent/query)" \
+     -H "Content-Type: application/json" \
+     -d '{"query": "Calculate 14 * 24"}'
+
+Response:
+{
+  "query": "Calculate 14 * 24",
+  "answer": "14 * 24 is 336.",
+  "iterations": 2,
+  "latency_ms": 1120.4,
+  "stop_reason": "final_answer"
+}
 
 
+Example 2: Corupus Retrieval with claim attribution
+Request:
+curl -X POST "[http://127.0.0.1:8000/agent/query](http://127.0.0.1:8000/agent/query)" \
+     -H "Content-Type: application/json" \
+     -d '{"query": "What is the retention period for the Raw tier in Tideline?"}'
 
-Once running, interactive API documentation is available at:
-
-\- \*\*Swagger UI\*\*: \[http://localhost:8000/docs](http://localhost:8000/docs)
-
-\- \*\*ReDoc\*\*: \[http://localhost:8000/redoc](http://localhost:8000/redoc)
-
-
-
-\---
-
-
-
-\## 5. API Reference
-
-
-
-\### Health \& Metadata
-
-\- \*\*`GET /health`\*\*: Returns datastore readiness and count of indexed chunks.
-
-\- \*\*`GET /agent/info`\*\*: Returns active model name, configured iteration limits, and registered tool names.
+Response:
+{
+  "query": "What is the retention period for the Raw tier in Tideline?",
+  "answer": "The data retention period for the Raw tier in Tideline is 14 days.",
+  "iterations": 2,
+  "latency_ms": 1845.2,
+  "stop_reason": "final_answer"
+}
 
 
+Example 3: Multi-Turn Conversation & History
+curl -X GET "[http://127.0.0.1:8000/agent/history/g1_test_1789037542](http://127.0.0.1:8000/agent/history/g1_test_1789037542)"
 
-\### Agent Loop
-
-\- \*\*`POST /agent/query`\*\*: Executes the multi-step ReAct agent.
-
-&#x20; - \*\*Payload\*\*:
-
-json{"query": "What is the lifetime in days of the Raw tier in RFC-014, and what is that multiplied by 24?","max\_iterations": 10,"return\_trace": true}- \*\*Response\*\*: Includes `answer`, `iterations`, `latency\_ms`, `stop\_reason` (`"final\_answer"`, `"max\_iterations"`, `"timeout"`), and intermediate `steps` array.
-
-
-
-\### Standalone Tools
-
-\- \*\*`POST /tools/calculate`\*\*: Safe arithmetic evaluation (`{"expression": "14 \* 24"}`).
-
-\- \*\*`POST /tools/search`\*\*: Keyword lookup across world facts table (`{"query": "France population"}`).
-
-\- \*\*`POST /tools/retrieve`\*\*: Vector similarity search over Tideline documents (`{"query": "Raw tier retention", "top\_k": 3}`).
-
-
-
-\---
-
-
-
-\## 6. Running Tests
-
-
-
-Run the unit and contract test suite with `pytest`:
-
-
-
-powershellpytest -v -m "not integration"
-
-To run all tests including live API integration tests:
-
-
-
-powershellpytest -v
-
-4.Save and close Notepad:In Notepad, press Ctrl + S to save the file, then close the Notepad window.5.Confirm the file in PowerShell:Run this in your PowerShell window to confirm it saved properly:PowerShellGet-Item README.md
-
-
-
-
-
-
-
+Response:
+{
+  "session_id": "g1_test_1789037542",
+  "turns_count": 3,
+  "turns": [
+    {
+      "query": "What is the data retention period for the Raw tier in Tideline?",
+      "answer": "The data retention period for the Raw tier in Tideline is 14 days.",
+      "timestamp": "2026-09-10T10:52:22.000Z"
+    },
+    {
+      "query": "How many hours is that retention duration in total?",
+      "answer": "The 14-day retention period is equivalent to 336 hours in total.",
+      "timestamp": "2026-09-10T10:52:28.000Z"
+    },
+    {
+      "query": "Which document did you find that information in?",
+      "answer": "The information regarding the Raw tier retention period of 14 days was found in the document `02-rfc-014-retention-and-downsampling.md` as well as `policy.txt`.",
+      "timestamp": "2026-09-10T10:52:35.000Z"
+    }
+  ]
+}
