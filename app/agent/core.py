@@ -66,6 +66,20 @@ class ReActAgent:
             safety_settings=safety_settings,
             system_instruction=system_instruction,
         )
+    def _call_model_with_retry(self, prompt: str, max_retries: int = 5):
+        for attempt in range(max_retries):
+            try:
+                return self.model.generate_content(prompt)
+            except Exception as e:
+                err_str = str(e)
+                if ("429" in err_str or "quota" in err_str.lower() or "resourceexhausted" in err_str.lower()) and attempt < max_retries - 1:
+                    delay = 5.0 * (attempt + 1)
+                    match = re.search(r'seconds:\s*([0-9]+)', err_str)
+                    if match:
+                        delay = float(match.group(1)) + 1.0
+                    time.sleep(delay)
+                else:
+                    raise e
 
     def _parse_output(self, text: str) -> Tuple[str, str, str, str]:
         clean_text = re.sub(r"[\u4e00-\u9fff\W_]*call:?", "", text).strip()
@@ -130,7 +144,7 @@ class ReActAgent:
                 )
 
             full_prompt = f"{history_prefix}Question: {query}\n{scratchpad}"
-            response = self.model.generate_content(full_prompt)
+            response = self._call_model_with_retry(full_prompt)
             output_text = extract_response_text(response)
 
             thought, action, action_input, final_answer = self._parse_output(output_text)
