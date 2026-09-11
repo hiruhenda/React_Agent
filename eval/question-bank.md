@@ -207,3 +207,47 @@ The corpus was written with specific failure modes in mind. Each of these is del
 8. **Cross-document dependency** (postmortem's cause is a gap the RFC named) — a single-document retrieval cannot answer C1, C2 or C3.
 9. **Search table contains no Tideline facts** — makes tool selection observable rather than incidental.
 10. **Search table gaps** — some plausible questions have no supporting fact, so an empty result set is the correct observation.
+
+---
+
+## Authored Questions (6 Additional Test Cases)
+
+### A5 — Direct Retrieval (Rollup Granularity)
+**Q:** What is the downsampling resolution applied to metrics when they transition from the Raw tier to the Warm tier?
+**Tools:** `retrieve`
+**Ground truth:** Downsampled to 1-minute intervals / rollups as defined in RFC-014.
+**Pass:** Contains reference to 1-minute rollup/interval and RFC-014.
+
+### B3 — Conflicting Sources (Retention Defaults)
+**Q:** According to Halcyon documentation, does a newly provisioned project retain raw samples for 14 days or 30 days by default?
+**Tools:** `retrieve`
+**Ground truth:** RFC-014 states the Raw tier retention is 14 days, whereas legacy FAQ/policy docs mention 30 days. The agent must acknowledge this discrepancy or cite the RFC as the current system architecture specification.
+**Pass:** Identifies both figures (14 days and 30 days) and attributes the discrepancy to differing doc sources (RFC vs legacy policy/FAQ).
+
+### C4 — Multi-Doc Dependency (INC-2291 Prevention)
+**Q:** What specific continuous integration or testing requirement was introduced to prevent a recurrence of the silent retention truncation bug seen in INC-2291?
+**Tools:** `retrieve`
+**Ground truth:** Requires soak tests (running 4-6 hours) to be executed manually on any changes affecting retention, downsampling, or compaction logic before merging to trunk.
+**Pass:** Mentions the mandatory soak test suite requirement for retention/compaction code.
+
+### D6 — Multi-Hop Calculation (Enterprise Tier Projection)
+**Q:** If a customer on the Team plan consumes 600 GB of storage for a full month, how much is their total monthly invoice if the base plan includes 250 GB and excess storage costs $0.09 per GB?
+**Tools:** `retrieve` → `calculate`
+**Ground truth:** Excess storage = 600 - 250 = 350 GB. Overage charge = 350 * 0.09 = $31.50. Total invoice = Base plan cost + $31.50.
+**Pass:** Accurately calculates 350 GB excess and $31.50 overage using the calculator tool.
+
+### E3 — Corpus Boundary (Hallucination Trap)
+**Q:** What is the per-node licensing cost for self-hosting Tideline in an air-gapped on-premise Kubernetes cluster?
+**Tools:** `retrieve`
+**Ground truth:** Tideline does not provide an on-premise air-gapped licensing tier in the documentation; it is managed SaaS only.
+**Pass:** Explicitly states that on-premise/air-gapped pricing is not documented or supported in the available materials.
+**Fail:** Hallucinating a dollar amount or per-core licensing model.
+
+### G2 — Conversational Reference Resolution
+Turn 1: What is the maximum number of active series allowed per project?
+Turn 2: What HTTP error code is returned if that limit is exceeded?
+**Tools:** `retrieve`
+**Ground truth:**
+Turn 1 — 500,000 active series.
+Turn 2 — HTTP 422 Unprocessable Entity.
+**Pass:** Turn 2 resolves "that limit" to the active series limit from Turn 1 without re-specifying it and returns HTTP 422.
