@@ -1,4 +1,5 @@
-from typing import Dict, List
+﻿from datetime import datetime, timezone
+from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
 from app.schemas.agent import ThoughtStep
 
@@ -6,6 +7,7 @@ from app.schemas.agent import ThoughtStep
 class SessionTurn(BaseModel):
     query: str
     answer: str
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     steps: List[ThoughtStep] = Field(default_factory=list)
 
 
@@ -13,11 +15,11 @@ class SessionState(BaseModel):
     session_id: str
     turns: List[SessionTurn] = Field(default_factory=list)
 
-    def format_history_for_prompt(self) -> str:
+    def format_history_for_prompt(self, max_turns: int = 10) -> str:
         if not self.turns:
             return ""
         lines = ["Previous Conversation Context:"]
-        for turn in self.turns:
+        for turn in self.turns[-max_turns:]:
             lines.append(f"User: {turn.query}")
             lines.append(f"Assistant: {turn.answer}")
         return "\n".join(lines) + "\n\n"
@@ -27,6 +29,9 @@ class SessionStore:
     def __init__(self):
         self._store: Dict[str, SessionState] = {}
 
+    def get(self, session_id: str) -> Optional[SessionState]:
+        return self._store.get(session_id)
+
     def get_or_create(self, session_id: str) -> SessionState:
         if session_id not in self._store:
             self._store[session_id] = SessionState(session_id=session_id)
@@ -34,7 +39,12 @@ class SessionStore:
 
     def record_turn(self, session_id: str, query: str, answer: str, steps: List[ThoughtStep]):
         session = self.get_or_create(session_id)
-        session.turns.append(SessionTurn(query=query, answer=answer, steps=steps))
+        session.turns.append(SessionTurn(
+            query=query,
+            answer=answer,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            steps=steps
+        ))
 
     def clear(self, session_id: str):
         if session_id in self._store:
