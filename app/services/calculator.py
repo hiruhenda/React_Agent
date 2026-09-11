@@ -1,7 +1,9 @@
 import ast
 import operator
+from typing import Tuple, Optional, Any
 
-_ALLOWED_OPERATORS = {
+# Structural whitelist of safe binary operators (Constraint 1: No eval/exec)
+SAFE_OPERATORS = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
     ast.Mult: operator.mul,
@@ -9,52 +11,73 @@ _ALLOWED_OPERATORS = {
     ast.FloorDiv: operator.floordiv,
     ast.Mod: operator.mod,
     ast.Pow: operator.pow,
-    ast.USub: operator.neg,
-    ast.UAdd: operator.pos,
 }
 
-_MAX_EXPONENT = 10000  # Protection against 2 ** 999999999 denial of service
+SAFE_UNARY_OPERATORS = {
+    ast.UAdd: operator.pos,
+    ast.USub: operator.neg,
+}
+
+MAX_EXPONENT = 1000  # Guard against memory exhaustion via 2**999999999
 
 
-def _eval_node(node):
-    if isinstance(node, ast.Expression):
-        return _eval_node(node.body)
-    elif isinstance(node, ast.Constant):
-        if not isinstance(node.value, (int, float)):
-            raise ValueError(f"Unsupported constant type: {type(node.value).__name__}")
-        return node.value
-    elif isinstance(node, ast.UnaryOp):
-        op_type = type(node.op)
-        if op_type not in _ALLOWED_OPERATORS:
-            raise ValueError(f"Unsupported unary operator: {op_type.__name__}")
-        return _ALLOWED_OPERATORS[op_type](_eval_node(node.operand))
+def _eval_node(node: ast.AST) -> Any:
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, (int, float)):
+            return node.value
+        raise ValueError(f"Unsupported constant type: {type(node.value).__name__}")
+
     elif isinstance(node, ast.BinOp):
         op_type = type(node.op)
-        if op_type not in _ALLOWED_OPERATORS:
-            raise ValueError(f"Unsupported binary operator: {op_type.__name__}")
+        if op_type not in SAFE_OPERATORS:
+            raise ValueError(f"Operator {op_type.__name__} is not allowed")
+
         left = _eval_node(node.left)
         right = _eval_node(node.right)
-        if op_type is ast.Pow and (isinstance(right, (int, float)) and right > _MAX_EXPONENT):
-            raise ValueError(f"Exponent exceeds safety threshold ({_MAX_EXPONENT})")
+
+        # Check for division by zero
         if op_type in (ast.Div, ast.FloorDiv, ast.Mod) and right == 0:
             raise ZeroDivisionError("Division by zero")
-        return _ALLOWED_OPERATORS[op_type](left, right)
+
+        # Check exponent bounds
+        if op_type == ast.Pow and right > MAX_EXPONENT:
+            raise OverflowError(f"Exponent {right} exceeds safe limit of {MAX_EXPONENT}")
+
+        return SAFE_OPERATORS[op_type](left, right)
+
+    elif isinstance(node, ast.UnaryOp):
+        op_type = type(node.op)
+        if op_type not in SAFE_UNARY_OPERATORS:
+            raise ValueError(f"Unary operator {op_type.__name__} is not allowed")
+        operand = _eval_node(node.operand)
+        return SAFE_UNARY_OPERATORS[op_type](operand)
+
     else:
-        raise ValueError(f"Unsupported expression syntax: {type(node).__name__}")
+        raise ValueError(f"Disallowed AST node: {type(node).__name__}")
 
 
-def evaluate_expression(expr: str) -> str:
-    """Evaluates an arithmetic expression safely using an AST whitelist."""
-    clean_expr = expr.strip()
-    if not clean_expr:
-        raise ValueError("Expression is empty")
+def safe_calculate(expression: str) -> Tuple[bool, float, Optional[str]]:
+    """
+    Evaluates an arithmetic expression safely using an AST whitelist.
+    Returns: (success: bool, result: float, error_message: Optional[str])
+    """
+    expr = expression.strip()
+    if not expr:
+        return False, 0.0, "Expression cannot be empty"
+
     try:
-        parsed = ast.parse(clean_expr, mode="eval")
-    except SyntaxError as e:
-        raise ValueError(f"Malformed arithmetic expression: {str(e)}")
-    
-    result = _eval_node(parsed)
-    # Format floating numbers that are integers cleanly
-    if isinstance(result, float) and result.is_integer():
-        return str(int(result))
-    return str(result)
+        parsed = ast.parse(expr, mode="eval")
+        result = _eval_node(parsed.body)
+        return True, float(result), None
+    except ZeroDivisionError:
+        return False, 0.0, "Division by zero is undefined"
+    except OverflowError as oe:
+        return False, 0.0, f"Calculation overflow: {str(oe)}"
+    except (ValueError, SyntaxError) as e:
+        return False, 0.0, f"Invalid or unsafe arithmetic expression: {str(e)}"
+    except Exception as e:
+        return False, 0.0, f"Evaluation error: {str(e)}"
+
+
+# Alias to satisfy callers importing either name
+evaluate_expression = safe_calculate

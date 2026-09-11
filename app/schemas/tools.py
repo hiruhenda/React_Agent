@@ -1,117 +1,119 @@
-from typing import List, Optional
-from pydantic import BaseModel, Field, field_validator
+﻿from typing import List, Optional
+from pydantic import BaseModel, Field
 
 
-# --- Search Tool Schemas ---
-
-class SearchRequest(BaseModel):
-    """Payload for searching the factual world knowledge table."""
-    query: str = Field(
-        ...,
-        min_length=1,
-        max_length=500,
-        description="Search query terms or question.",
-        examples=["capital of France"]
-    )
-
-    @field_validator("query")
-    @classmethod
-    def reject_whitespace_only(cls, v: str) -> str:
-        stripped = v.strip()
-        if not stripped:
-            raise ValueError("Query cannot be empty or contain only whitespace.")
-        return stripped
-
-
-class SearchResultItem(BaseModel):
-    """A matched fact entry from the world facts table."""
-    topic: str = Field(..., description="Fact category or subject.", examples=["France"])
-    fact: str = Field(..., description="Factual detail.", examples=["Capital is Paris; population is roughly 67 million."])
-
-
-class SearchResponse(BaseModel):
-    """Response returned by the search tool endpoint."""
-    query: str = Field(..., description="The query searched.")
-    results: List[SearchResultItem] = Field(
-        default_factory=list,
-        description="List of matching facts. Returns empty list if no matches found."
-    )
-    total_matches: int = Field(..., description="Total count of matching items.")
-
-
-# --- Retrieve Tool Schemas ---
-
-class RetrieveRequest(BaseModel):
-    """Payload for semantic document retrieval over Tideline corpus."""
-    query: str = Field(
-        ...,
-        min_length=1,
-        max_length=1000,
-        description="Search query to match against Tideline documentation.",
-        examples=["Raw tier retention lifetime"]
-    )
-    top_k: int = Field(
-        default=3,
-        ge=1,
-        le=10,
-        description="Number of most relevant chunks to return.",
-        examples=[3]
-    )
-    source_filter: Optional[str] = Field(
-        default=None,
-        description="Optional filename to restrict search to a single document.",
-        examples=["02-rfc-014-retention-and-downsampling.md"]
-    )
-
-    @field_validator("query")
-    @classmethod
-    def reject_whitespace_only(cls, v: str) -> str:
-        stripped = v.strip()
-        if not stripped:
-            raise ValueError("Query cannot be empty or contain only whitespace.")
-        return stripped
-
-
-class DocumentChunk(BaseModel):
-    """A retrieved document snippet with source metadata."""
-    content: str = Field(..., description="The text content of the chunk.")
-    source_filename: str = Field(..., description="Filename from which the chunk originated.", examples=["02-rfc-014-retention-and-downsampling.md"])
-    score: float = Field(..., description="Relevance similarity score (lower distance / higher relevance).", examples=[0.4915])
-    chunk_index: Optional[int] = Field(default=None, description="Index position of the chunk in the source document.")
-
-
-class RetrieveResponse(BaseModel):
-    """Response returned by the document retrieval endpoint."""
-    query: str = Field(..., description="The search query submitted.")
-    chunks: List[DocumentChunk] = Field(
-        default_factory=list,
-        description="Ranked list of matching document chunks."
-    )
-    total_retrieved: int = Field(..., description="Number of chunks retrieved.")
-
-
-# --- Calculate Tool Schemas ---
+# --- Tool 1: Calculator Schemas ---
 
 class CalculateRequest(BaseModel):
-    """Payload for safe arithmetic evaluation."""
     expression: str = Field(
         ...,
-        min_length=1,
-        max_length=200,
-        description="Mathematical expression to evaluate.",
-        examples=["14 * 24"]
+        description="Mathematical expression to evaluate safely (e.g., '14 * 24' or '68170000 / 357022')",
+        examples=["14 * 24"],
     )
-
-    @field_validator("expression")
-    @classmethod
-    def reject_whitespace_only(cls, v: str) -> str:
-        stripped = v.strip()
-        if not stripped:
-            raise ValueError("Expression cannot be empty or contain only whitespace.")
-        return stripped
 
 
 class CalculateResponse(BaseModel):
-    """Response returned by the arithmetic evaluation endpoint."""
-    expression: str = Field(..., description="The evaluated expression string.")
-    result: str = Field(..., description="The computed numerical result as a string.", examples=["336"])
+    expression: str
+    result: float
+    error: Optional[str] = None
+
+
+# --- Tool 2: Fact Search Schemas ---
+
+class SearchResultItem(BaseModel):
+    topic: str
+    fact: str
+
+
+FactMatch = SearchResultItem
+
+
+class SearchRequest(BaseModel):
+    query: str = Field(
+        ...,
+        description="Search string to match against seed fact repository",
+        examples=["population of France"],
+    )
+
+
+class SearchResponse(BaseModel):
+    query: str
+    matches: List[SearchResultItem] = Field(default_factory=list)
+    results: List[SearchResultItem] = Field(default_factory=list)
+    total_matches: int = 0
+
+    def __init__(self, **data):
+        if "matches" in data and "results" not in data:
+            data["results"] = data["matches"]
+        elif "results" in data and "matches" not in data:
+            data["matches"] = data["results"]
+        super().__init__(**data)
+
+
+# --- Tool 3: Document Retrieval Schemas ---
+
+class DocumentChunk(BaseModel):
+    source_filename: str = Field(default="unknown", description="Source document name")
+    chunk_index: int = Field(default=0, description="Sequential index of chunk within source")
+    content: str = Field(..., description="Text content of the retrieved chunk")
+    score: float = Field(default=0.0, description="Cosine similarity score")
+
+    @property
+    def source(self) -> str:
+        return self.source_filename
+
+    @property
+    def chunk_id(self) -> int:
+        return self.chunk_index
+
+
+class RetrieveRequest(BaseModel):
+    query: str = Field(
+        ...,
+        description="Natural language semantic search query",
+        examples=["Raw tier retention duration"],
+    )
+    top_k: Optional[int] = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Maximum number of document chunks to return",
+    )
+    source_filter: Optional[str] = Field(
+        default=None,
+        description="Optional filter to restrict retrieval to a specific document filename",
+    )
+
+
+class RetrieveResponse(BaseModel):
+    query: str
+    results: List[DocumentChunk]
+    total_retrieved: int = Field(default=0, description="Total chunks returned")
+
+    def __init__(self, **data):
+        if "total_found" in data and "total_retrieved" not in data:
+            data["total_retrieved"] = data["total_found"]
+        super().__init__(**data)
+
+    @property
+    def total_found(self) -> int:
+        return self.total_retrieved
+
+    @property
+    def chunks(self) -> List[DocumentChunk]:
+        return self.results
+
+
+# --- Stage 3: Ingestion Schemas ---
+
+class CollectionStats(BaseModel):
+    total_chunks: int
+    unique_documents: int
+
+
+class IngestResponse(BaseModel):
+    document_id: str
+    source_filename: str
+    chunk_count: int
+    collection_stats: CollectionStats
+    message: str
